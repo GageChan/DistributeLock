@@ -1,5 +1,6 @@
 package com.gagechan.service.Impl;
 
+import com.gagechan.comment.RedisLock;
 import com.gagechan.model.Goods;
 import com.gagechan.repository.GoodsRepository;
 import com.gagechan.service.GoodsService;
@@ -19,6 +20,9 @@ public class GoodsServiceImpl implements GoodsService {
     @Autowired
     private GoodsRepository goodsRepository;
 
+    @Autowired
+    private RedisLock redisLock;
+
     /**
      * 秒杀
      *
@@ -28,6 +32,13 @@ public class GoodsServiceImpl implements GoodsService {
     @Override
     public Boolean skill(Integer id) {
 
+        long time = System.currentTimeMillis() + 1000*10;  //超时时间：10秒，最好设为常量
+
+        boolean tryLock = redisLock.lock(String.valueOf(id), String.valueOf(time));
+        if (!tryLock) {
+//            log.error("请稍后再试");
+            return false;
+        }
         Optional<Goods> goodsOptional = goodsRepository.findById(id);
         Goods goods = goodsOptional.orElse(null);
         if (goods == null) {
@@ -35,16 +46,17 @@ public class GoodsServiceImpl implements GoodsService {
             return false;
         }
         if (goods.getStock().compareTo(MIN_STOCK_NUM) <= 0) {
-            log.error("秒杀商品{}已售完", id);
+//            log.error("秒杀商品{}已售完", id);
             return false;
         }
-        goods.setStock(goodsRepository.findById(id).orElse(null).getStock() - 1);
+        goods.setStock(goods.getStock() - 1);
         try {
-            Thread.sleep(200);
+            Thread.sleep(100);
         } catch (InterruptedException e) {
             e.printStackTrace();
         }
         goodsRepository.save(goods);
+        redisLock.unlock(String.valueOf(id),String.valueOf(time));
         return true;
 
     }
